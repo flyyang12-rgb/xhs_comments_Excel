@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "小红书关键词笔记评论采集",
+  "description": "按关键词采集小红书前 10 条笔记及全部一级、二级评论，并导出 Excel。",
+  "version": "1.0.0",
+  "action": {
+    "default_title": "小红书采集",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "cookies",
+    "downloads",
+    "scripting",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:18765/*",
+    "https://xiaohongshu.com/*",
+    "https://www.xiaohongshu.com/*",
+    "https://edith.xiaohongshu.com/*",
+    "https://so.xiaohongshu.com/*"
+  ],
+  "sandbox": {
+    "pages": [
+      "signer-sandbox.html"
+    ]
+  },
+  "content_security_policy": {
+    "sandbox": "sandbox allow-scripts; script-src 'self' 'unsafe-eval'; object-src 'self'"
+  }
+}

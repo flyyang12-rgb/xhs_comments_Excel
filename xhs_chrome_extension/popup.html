@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>小红书采集</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="panel">
+      <header class="header">
+        <div>
+          <h1>小红书采集</h1>
+          <p>登录小红书后即可采集</p>
+        </div>
+        <span id="stateBadge" class="badge">就绪</span>
+      </header>
+
+      <section class="controls">
+        <label class="field">
+          <span>目标关键词</span>
+          <input id="keyword" type="text" value="儿童雨衣" autocomplete="off" placeholder="例如：儿童雨衣">
+        </label>
+
+        <label class="field compact-field">
+          <span>采集条数（1-20）</span>
+          <input id="limit" type="number" value="10" min="1" max="20" step="1" inputmode="numeric">
+        </label>
+
+        <label class="field compact-field">
+          <span>请求间隔秒数（3-30）</span>
+          <input id="delay" type="number" value="6" min="3" max="30" step="1" inputmode="numeric">
+        </label>
+
+        <div class="actions">
+          <button id="startBtn" class="primary" type="button">采集前10条笔记</button>
+          <button id="importBtn" type="button">导入笔记采评论</button>
+          <button id="stopBtn" type="button" disabled>停止</button>
+          <button id="exportBtn" type="button" disabled>导出备份</button>
+          <input id="noteFile" type="file" accept=".xlsx" hidden>
+        </div>
+      </section>
+
+      <section class="progress">
+        <div class="bar"><span id="progressBar"></span></div>
+        <div id="statusText" class="status">等待输入关键词</div>
+      </section>
+
+      <section class="stats">
+        <div><b id="noteCount">0</b><span>笔记</span></div>
+        <div><b id="commentCount">0</b><span>一级评论</span></div>
+        <div><b id="replyCount">0</b><span>二级评论</span></div>
+      </section>
+
+      <ol id="log" class="log"></ol>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
