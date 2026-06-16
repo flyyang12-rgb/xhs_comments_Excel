@@ -1,28 +1,12 @@
-给同事的使用步骤：
-
-1. 解压整个文件夹，不要只拿 xhs_chrome_extension。
-2. 双击“启动小红书签名服务.bat”。
-3. 黑色窗口显示 Sign server is already running 或 Starting XHS sign server 后，不要关闭窗口。
-4. 打开 Chrome，进入 chrome://extensions/。
-5. 打开右上角“开发者模式”。
-6. 点击“加载已解压的扩展程序”，选择 xhs_chrome_extension 文件夹。
+使用步骤：
+1. 双击“启动采集工具.bat”。
+2. (等待三秒回车几次)黑色窗口不要关闭。
+3. 打开 Chrome，进入 chrome://extensions/。
+4. 开启右上角“开发者模式”。
+5. 点击“加载未打包的扩展程序”。
+6. 选择 xhs_chrome_extension 文件夹。
 7. 在 Chrome 里登录小红书。
 8. 点击插件，输入关键词和采集条数，开始采集。
 
-如果双击 bat 提示 Node.js was not found：
 
-说明这台电脑没有 Node 运行环境。请把 node.exe 放到当前文件夹，或者放到 node/node.exe。
-
-推荐最终打包结构：
-
-xhs_chrome_extension_all_thing/
-xhs_chrome_extension_all_thing/xhs_chrome_extension/
-xhs_chrome_extension_all_thing/xhs_chrome_extension/node/node.exe
-xhs_chrome_extension_all_thing/node.exe
-xhs_chrome_extension_all_thing/node_modules/
-xhs_chrome_extension_all_thing/package.json
-xhs_chrome_extension_all_thing/package-lock.json
-xhs_chrome_extension_all_thing/xhs_main_260411.js
-xhs_chrome_extension_all_thing/xhs_sign_server.js
-xhs_chrome_extension_all_thing/启动小红书签名服务.bat
-xhs_chrome_extension_all_thing/给同事使用说明.txt
+建议先搜 "kk树AI云" 关键词 来采集 3 条数据 做测试(采集的数据是   最多评论  排序的数据)

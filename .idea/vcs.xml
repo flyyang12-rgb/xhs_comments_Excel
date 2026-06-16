@@ -2,5 +2,7 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/_refs/Spider_XHS" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/_refs/XhsSkills" vcs="Git" />
   </component>
 </project>
