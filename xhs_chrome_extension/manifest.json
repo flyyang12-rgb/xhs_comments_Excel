@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "小红书关键词笔记评论采集",
-  "description": "按关键词采集小红书前 10 条笔记及全部一级、二级评论，并导出 Excel。",
+  "description": "按关键词和排序方式采集小红书笔记及全部一级、二级评论，并导出 Excel。",
   "version": "1.0.0",
   "action": {
     "default_title": "小红书采集",

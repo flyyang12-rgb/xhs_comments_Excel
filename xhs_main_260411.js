@@ -238,7 +238,7 @@ HTMLDocument.prototype.body = body
 HTMLDocument.prototype.documentElement =  html
 HTMLDocument.prototype.documentMode = undefined
 
-HTMLDocument.prototype.cookie = 'abRequestId=caed210b-2b2f-586e-a1b0-b6ee2c5086e7; xsecappid=xhs-pc-web; a1=197e9c5585d7b1lzytcj54rjel35piyzlurwevylq50000252033; webId=2e9b5644ae5f2f038aadc5da4021d1a6; gid=yjWdjS2Kif1DyjWdjS22Y7hv2fWDy1uv9SV2F1A4FVd1qE282U3vud888J2J8qq8q4WWYqi0; webBuild=4.72.0; loadts=1752420555436; unread={%22ub%22:%22687338ef000000001d00f0ba%22%2C%22ue%22:%2268739fd9000000001703265f%22%2C%22uc%22:26}; websectiga=634d3ad75ffb42a2ade2c5e1705a73c845837578aeb31ba0e442d75c648da36a'
+HTMLDocument.prototype.cookie = 'xsecappid=xhs-pc-web'
 
 Object.defineProperty(HTMLDocument.prototype, "addEventListener", {
     writable:true,
@@ -462,9 +462,9 @@ function get_x_s() {
         "image_formats": ["jpg", "webp", "avif"],
         "extra": {"need_body_topic": "1"},
         "xsec_source": "pc_feed",
-        "xsec_token": "ABfuVL1abrca5AtSMfNR0pWGBkZh387i3pykPOCHh4QbA="
+        "xsec_token": "REPLACE_WITH_XSEC_TOKEN"
     };
-    var a1 = "1908d1a0b6eb13b5egsm8ggm97q17yfuv92n4l0g850000266761";
+    var a1 = "test_a1";
     return get_request_headers_params(url_param, json_data, a1, 'POST');
 }
 

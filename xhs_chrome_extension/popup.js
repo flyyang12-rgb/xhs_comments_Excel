@@ -1,6 +1,7 @@
 const els = {
   keyword: document.getElementById('keyword'),
   limit: document.getElementById('limit'),
+  sortType: document.getElementById('sortType'),
   delay: document.getElementById('delay'),
   startBtn: document.getElementById('startBtn'),
   importBtn: document.getElementById('importBtn'),
@@ -16,6 +17,14 @@ const els = {
   log: document.getElementById('log')
 };
 
+let loginStatus = 'checking';
+
+const SORT_LABELS = {
+  comment_descending: '最多评论',
+  popularity_descending: '最多点赞',
+  time_descending: '最新'
+};
+
 function normalizedLimit() {
   const value = Math.trunc(Number(els.limit.value || 10));
   return Math.max(1, Math.min(20, Number.isFinite(value) ? value : 10));
@@ -26,25 +35,66 @@ function normalizedDelay() {
   return Math.max(3, Math.min(30, Number.isFinite(value) ? value : 6));
 }
 
+function normalizedSortType() {
+  const value = String(els.sortType.value || 'comment_descending');
+  return SORT_LABELS[value] ? value : 'comment_descending';
+}
+
 function syncLimitUi() {
   const limit = normalizedLimit();
   els.limit.value = String(limit);
-  els.startBtn.textContent = `采集前${limit}条笔记`;
+  syncStartButton();
 }
 
 function syncDelayUi() {
   els.delay.value = String(normalizedDelay());
 }
 
+function syncSortUi() {
+  els.sortType.value = normalizedSortType();
+  syncStartButton();
+}
+
+function syncStartButton() {
+  const limit = normalizedLimit();
+  const sortLabel = SORT_LABELS[normalizedSortType()] || SORT_LABELS.comment_descending;
+  els.startBtn.textContent = `开始采集 · ${sortLabel} · ${limit}条`;
+}
+
 function send(message) {
   return chrome.runtime.sendMessage(message);
+}
+
+function setLoginStatus(status) {
+  loginStatus = ['checking', 'logged-in', 'logged-out'].includes(status) ? status : 'logged-out';
+  renderBadge();
+}
+
+function renderBadge(status = 'idle') {
+  const isBusy = status === 'running';
+  const isError = status === 'error';
+  els.stateBadge.classList.toggle('running', isBusy);
+  els.stateBadge.classList.toggle('logged-in', !isBusy && !isError && loginStatus === 'logged-in');
+  els.stateBadge.classList.toggle('logged-out', !isBusy && !isError && loginStatus === 'logged-out');
+  els.stateBadge.classList.toggle('checking', !isBusy && !isError && loginStatus === 'checking');
+  if (isBusy) {
+    els.stateBadge.textContent = '采集中';
+  } else if (isError) {
+    els.stateBadge.textContent = '异常';
+  } else if (loginStatus === 'logged-in') {
+    els.stateBadge.textContent = '已登录';
+  } else if (loginStatus === 'logged-out') {
+    els.stateBadge.textContent = '未登录';
+  } else {
+    els.stateBadge.textContent = '检测中';
+  }
 }
 
 function setBusy(isBusy) {
   els.startBtn.disabled = isBusy;
   els.importBtn.disabled = isBusy;
   els.stopBtn.disabled = !isBusy;
-  els.stateBadge.classList.toggle('running', isBusy);
+  document.body.classList.toggle('is-running', isBusy);
 }
 
 function decodeUtf8(bytes) {
@@ -151,11 +201,13 @@ async function parseNotesWorkbook(buffer) {
   if (linkIndex < 0) {
     throw new Error('请选择 notes_raw.xlsx，必须包含“笔记链接”列');
   }
+  const sortIndex = indexOf('排序方式');
   const invalidRows = [];
   const notes = rows.slice(1).map((row, index) => ({
     batch: row[indexOf('采集批次')] || '',
     collectTime: row[indexOf('采集时间')] || '',
     keyword: row[indexOf('搜索关键词')] || '',
+    sortLabel: sortIndex >= 0 ? (row[sortIndex] || '') : '',
     rank: row[indexOf('关键词下排名')] || index + 1,
     link: row[linkIndex] || '',
     title: row[indexOf('笔记标题')] || '',
@@ -224,8 +276,9 @@ function render(state) {
   const status = state.status || 'idle';
   const isBusy = status === 'running';
   setBusy(isBusy);
+  document.body.classList.toggle('is-error', status === 'error');
   els.exportBtn.disabled = !(state.notes?.length || state.commentRows?.length);
-  els.stateBadge.textContent = isBusy ? '采集中' : status === 'error' ? '异常' : '就绪';
+  renderBadge(status);
   const progress = state.taskProgress || {};
   const progressLabel = progress.total ? `${progress.label || `${progress.current}/${progress.total}`} · ` : '';
   els.statusText.textContent = `${progressLabel}${state.message || '等待输入关键词'}`;
@@ -253,18 +306,22 @@ els.startBtn.addEventListener('click', async () => {
   }
   const limit = normalizedLimit();
   const delaySeconds = normalizedDelay();
+  const sortType = normalizedSortType();
   syncLimitUi();
+  syncSortUi();
   syncDelayUi();
   await send({
     type: 'START_COLLECT',
     keyword,
     limit,
+    sortType,
     delaySeconds
   });
 });
 
 els.limit.addEventListener('input', syncLimitUi);
 els.limit.addEventListener('change', syncLimitUi);
+els.sortType.addEventListener('change', syncSortUi);
 els.delay.addEventListener('input', syncDelayUi);
 els.delay.addEventListener('change', syncDelayUi);
 
@@ -309,6 +366,18 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
+async function refreshLoginStatus() {
+  setLoginStatus('checking');
+  try {
+    const result = await send({ type: 'CHECK_LOGIN_STATUS' });
+    setLoginStatus(result?.loggedIn ? 'logged-in' : 'logged-out');
+  } catch (_) {
+    setLoginStatus('logged-out');
+  }
+}
+
 syncLimitUi();
+syncSortUi();
 syncDelayUi();
 send({ type: 'GET_STATE' }).then(render).catch(() => {});
+refreshLoginStatus();

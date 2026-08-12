@@ -6,6 +6,17 @@ title XHS Collection Tool
 set "APP_DIR=%~dp0"
 set "EXT_DIR=%APP_DIR%xhs_chrome_extension"
 set "NODE_EXE=%EXT_DIR%\node\node.exe"
+if not exist "%NODE_EXE%" (
+  set "NODE_EXE=node"
+  where node >nul 2>nul
+  if errorlevel 1 (
+    echo [ERROR] Node.js was not found.
+    echo Install Node.js from https://nodejs.org/ and run this file again.
+    echo.
+    pause
+    exit /b 1
+  )
+)
 set "SIGN_SERVER=%APP_DIR%xhs_sign_server.js"
 set "SIGN_JS=%APP_DIR%xhs_main_260411.js"
 set "SERVICE_URL=http://127.0.0.1:18765"
@@ -20,16 +31,6 @@ if not exist "%EXT_DIR%\" (
   echo   %EXT_DIR%
   echo.
   echo Please unzip the whole package and do not move files separately.
-  echo.
-  pause
-  exit /b 1
-)
-
-if not exist "%NODE_EXE%" (
-  echo [ERROR] Missing portable Node runtime:
-  echo   %NODE_EXE%
-  echo.
-  echo Please make sure xhs_chrome_extension\node\node.exe exists.
   echo.
   pause
   exit /b 1

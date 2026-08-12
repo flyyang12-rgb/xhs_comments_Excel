@@ -62,8 +62,26 @@ async function signRequestWithLocalHelper(api, data, a1, method = 'GET') {
 const BASE_URL = 'https://edith.xiaohongshu.com';
 const SEARCH_BASE_URL = 'https://so.xiaohongshu.com';
 const SEARCH_NOTES_API = '/api/sns/web/v2/search/notes';
-const NOTES_HEADERS = ['采集批次', '采集时间', '搜索关键词', '关键词下排名', '笔记链接', '笔记标题', '作者昵称', '评论数', '采集状态'];
+const NOTES_HEADERS = ['采集批次', '采集时间', '搜索关键词', '排序方式', '关键词下排名', '笔记链接', '笔记标题', '作者昵称', '评论数', '采集状态'];
 const COMMENTS_HEADERS = ['笔记链接', '评论序号', '一级评论内容和图片链接', '所有二级评论内容和图片链接', '评论采集状态'];
+
+const SEARCH_SORT_OPTIONS = {
+  comment_descending: {
+    label: '最多评论',
+    sort: 'general',
+    tag: 'comment_descending'
+  },
+  popularity_descending: {
+    label: '最多点赞',
+    sort: 'general',
+    tag: 'popularity_descending'
+  },
+  time_descending: {
+    label: '最新',
+    sort: 'general',
+    tag: 'time_descending'
+  }
+};
 
 const state = {
   status: 'idle',
@@ -278,6 +296,51 @@ async function getCookieString() {
   return result;
 }
 
+async function checkLoginStatus() {
+  const hasA1Cookie = (cookies) => cookies.some((cookie) => cookie?.name === 'a1' && cookie.value);
+  const stores = await chrome.cookies.getAllCookieStores().catch(() => [{ id: undefined }]);
+  const queries = [
+    { url: 'https://www.xiaohongshu.com/' },
+    { url: 'https://xiaohongshu.com/' },
+    { url: 'https://edith.xiaohongshu.com/' },
+    { url: 'https://so.xiaohongshu.com/' },
+    { domain: 'xiaohongshu.com' },
+    { domain: '.xiaohongshu.com' },
+    { domain: 'www.xiaohongshu.com' },
+    { domain: '.www.xiaohongshu.com' },
+    { domain: 'edith.xiaohongshu.com' },
+    { domain: '.edith.xiaohongshu.com' },
+    { domain: 'so.xiaohongshu.com' },
+    { domain: '.so.xiaohongshu.com' }
+  ];
+  const cookieGroups = await Promise.all(
+    stores.flatMap((store) => queries.map((query) => (
+      chrome.cookies.getAll({
+        ...query,
+        ...(store.id ? { storeId: store.id } : {})
+      }).catch(() => [])
+    )))
+  );
+  if (hasA1Cookie(cookieGroups.flat())) {
+    return true;
+  }
+
+  const tabs = await chrome.tabs.query({ url: ['https://www.xiaohongshu.com/*', 'https://xiaohongshu.com/*'] }).catch(() => []);
+  for (const tab of tabs) {
+    if (!tab?.id) {
+      continue;
+    }
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => document.cookie || ''
+    }).catch(() => []);
+    if (String(result?.result || '').split(';').some((item) => item.trim().startsWith('a1='))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function traceId() {
   const chars = 'abcdef0123456789';
   let out = '';
@@ -365,18 +428,23 @@ function createSearchId() {
   return `${randomToken(20)}@${randomToken(20)}`;
 }
 
-function buildSearchNotesPayload({ keyword, page, pageSize, searchId }) {
+function normalizeSearchSort(sortType) {
+  return SEARCH_SORT_OPTIONS[sortType] || SEARCH_SORT_OPTIONS.comment_descending;
+}
+
+function buildSearchNotesPayload({ keyword, page, pageSize, searchId, sortType }) {
+  const sortOption = normalizeSearchSort(sortType);
   return {
     keyword,
     page,
     page_size: pageSize,
     search_id: searchId,
-    sort: 'general',
+    sort: sortOption.sort,
     note_type: 0,
     ext_flags: [],
     filters: [
       {
-        tags: ['comment_descending'],
+        tags: [sortOption.tag],
         type: 'sort_type'
       },
       {
@@ -402,7 +470,7 @@ function buildSearchNotesPayload({ keyword, page, pageSize, searchId }) {
   };
 }
 
-function parseNotes(searchData, keyword, limit, { rankOffset = 0 } = {}) {
+function parseNotes(searchData, keyword, limit, { rankOffset = 0, sortLabel = '' } = {}) {
   const items = searchData?.data?.items || [];
   const rows = [];
   const now = formatDate();
@@ -427,6 +495,7 @@ function parseNotes(searchData, keyword, limit, { rankOffset = 0 } = {}) {
       batch,
       collectTime: now,
       keyword,
+      sortLabel,
       rank,
       link,
       title: note.display_title || '无标题',
@@ -440,8 +509,9 @@ function parseNotes(searchData, keyword, limit, { rankOffset = 0 } = {}) {
   return rows;
 }
 
-async function searchNotesByApi({ keyword, limit, login, delaySeconds }) {
+async function searchNotesByApi({ keyword, limit, login, delaySeconds, sortType }) {
   const targetLimit = Math.max(1, Math.min(20, Number(limit || 10)));
+  const sortOption = normalizeSearchSort(sortType);
   const pageSize = 20;
   const searchId = createSearchId();
   const notesById = new Map();
@@ -450,21 +520,22 @@ async function searchNotesByApi({ keyword, limit, login, delaySeconds }) {
   while (!state.stopRequested && notesById.size < targetLimit) {
     setTaskProgress('search', notesById.size, targetLimit, `搜索笔记 ${notesById.size}/${targetLimit}`);
     setState({
-      message: `API 搜索最多评论笔记：${notesById.size}/${targetLimit}，第 ${page} 页`,
+      message: `API 搜索${sortOption.label}笔记：${notesById.size}/${targetLimit}，第 ${page} 页`,
       progress: Math.min(18, 6 + page * 4)
     });
-    log(`搜索第 ${page} 页，已拿到 ${notesById.size}/${targetLimit} 条笔记`, 'search');
+    log(`按${sortOption.label}搜索第 ${page} 页，已拿到 ${notesById.size}/${targetLimit} 条笔记`, 'search');
     throwIfStopped();
 
     const payload = buildSearchNotesPayload({
       keyword,
       page,
       pageSize,
-      searchId
+      searchId,
+      sortType: sortOption.tag
     });
     const data = await signedPost(SEARCH_NOTES_API, payload, login, { baseUrl: SEARCH_BASE_URL });
     throwIfStopped();
-    const parsedNotes = parseNotes(data, keyword, targetLimit, { rankOffset: notesById.size });
+    const parsedNotes = parseNotes(data, keyword, targetLimit, { rankOffset: notesById.size, sortLabel: sortOption.label });
 
     for (const note of parsedNotes) {
       if (!notesById.has(note.noteId)) {
@@ -657,6 +728,7 @@ function normalizeImportedNotes(notes) {
       batch: note.batch || '',
       collectTime: note.collectTime || '',
       keyword: note.keyword || '',
+      sortLabel: note.sortLabel || '',
       rank: Number(note.rank || index + 1),
       link,
       title: note.title || '',
@@ -730,9 +802,10 @@ async function runCommentCollectionFromNotes({ notes, delaySeconds }) {
   }
 }
 
-async function runCollection({ keyword, limit, delaySeconds }) {
+async function runCollection({ keyword, limit, delaySeconds, sortType }) {
   state.stopRequested = false;
   const targetLimit = Math.max(1, Math.min(20, Number(limit || 10)));
+  const sortOption = normalizeSearchSort(sortType);
   setTaskProgress('search', 0, targetLimit, `搜索笔记 0/${targetLimit}`);
   setState({
     status: 'running',
@@ -745,19 +818,19 @@ async function runCollection({ keyword, limit, delaySeconds }) {
     replyCount: 0,
     logs: []
   });
-  log(`开始关键词采集：${keyword}`, 'start');
+  log(`开始关键词采集：${keyword}，排序：${sortOption.label}`, 'start');
 
   const login = await getCookieString();
   throwIfStopped();
   log('登录态检查通过', 'auth');
 
-  const notes = await searchNotesByApi({ keyword, limit, login, delaySeconds });
+  const notes = await searchNotesByApi({ keyword, limit, login, delaySeconds, sortType: sortOption.tag });
   throwIfStopped();
   if (!notes.length) {
-    throw new Error('最多评论搜索接口未返回可采集的笔记');
+    throw new Error(`${sortOption.label}搜索接口未返回可采集的笔记`);
   }
-  setState({ notes, message: `已通过 API 获取 ${notes.length} 条笔记`, progress: 20 });
-  log(`搜索完成，获取笔记 ${notes.length} 条`, 'search');
+  setState({ notes, message: `已通过 API 获取 ${notes.length} 条${sortOption.label}笔记`, progress: 20 });
+  log(`${sortOption.label}搜索完成，获取笔记 ${notes.length} 条`, 'search');
 
   await downloadBlob(createWorkbookBlob('notes_raw', noteRows()), 'notes_raw.xlsx');
   log('已下载 notes_raw.xlsx', 'download');
@@ -800,6 +873,7 @@ function noteRows() {
       note.batch,
       note.collectTime,
       note.keyword,
+      note.sortLabel || '',
       note.rank,
       note.link,
       note.title,
@@ -843,6 +917,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     if (message?.type === 'GET_STATE') {
       sendResponse(publicState());
+      return;
+    }
+    if (message?.type === 'CHECK_LOGIN_STATUS') {
+      sendResponse({ ok: true, loggedIn: await checkLoginStatus() });
       return;
     }
     if (message?.type === 'STOP_COLLECT') {
