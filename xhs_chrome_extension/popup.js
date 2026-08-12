@@ -2,6 +2,8 @@ const els = {
   keyword: document.getElementById('keyword'),
   limit: document.getElementById('limit'),
   sortType: document.getElementById('sortType'),
+  noteType: document.getElementById('noteType'),
+  noteTime: document.getElementById('noteTime'),
   delay: document.getElementById('delay'),
   startBtn: document.getElementById('startBtn'),
   importBtn: document.getElementById('importBtn'),
@@ -20,9 +22,11 @@ const els = {
 let loginStatus = 'checking';
 
 const SORT_LABELS = {
+  general: '综合',
   comment_descending: '最多评论',
   popularity_descending: '最多点赞',
-  time_descending: '最新'
+  time_descending: '最新',
+  collect_descending: '最多收藏'
 };
 
 function normalizedLimit() {
@@ -38,6 +42,16 @@ function normalizedDelay() {
 function normalizedSortType() {
   const value = String(els.sortType.value || 'comment_descending');
   return SORT_LABELS[value] ? value : 'comment_descending';
+}
+
+function normalizedNoteType() {
+  const value = Number(els.noteType.value || 0);
+  return [0, 1, 2].includes(value) ? value : 0;
+}
+
+function normalizedNoteTime() {
+  const value = Number(els.noteTime.value || 0);
+  return [0, 1, 2, 3].includes(value) ? value : 0;
 }
 
 function syncLimitUi() {
@@ -307,6 +321,8 @@ els.startBtn.addEventListener('click', async () => {
   const limit = normalizedLimit();
   const delaySeconds = normalizedDelay();
   const sortType = normalizedSortType();
+  const noteType = normalizedNoteType();
+  const noteTime = normalizedNoteTime();
   syncLimitUi();
   syncSortUi();
   syncDelayUi();
@@ -315,6 +331,8 @@ els.startBtn.addEventListener('click', async () => {
     keyword,
     limit,
     sortType,
+    noteType,
+    noteTime,
     delaySeconds
   });
 });
@@ -322,6 +340,8 @@ els.startBtn.addEventListener('click', async () => {
 els.limit.addEventListener('input', syncLimitUi);
 els.limit.addEventListener('change', syncLimitUi);
 els.sortType.addEventListener('change', syncSortUi);
+els.noteType.addEventListener('change', syncStartButton);
+els.noteTime.addEventListener('change', syncStartButton);
 els.delay.addEventListener('input', syncDelayUi);
 els.delay.addEventListener('change', syncDelayUi);
 

@@ -32,15 +32,38 @@
           <label class="field compact-field sort-field">
             <span>排序</span>
             <select id="sortType">
+              <option value="general">综合</option>
               <option value="comment_descending" selected>最多评论</option>
               <option value="popularity_descending">最多点赞</option>
               <option value="time_descending">最新</option>
+              <option value="collect_descending">最多收藏</option>
             </select>
           </label>
 
           <label class="field compact-field">
             <span>间隔秒</span>
             <input id="delay" type="number" value="6" min="3" max="30" step="1" inputmode="numeric">
+          </label>
+        </div>
+
+        <div class="filter-row">
+          <label class="field compact-field">
+            <span>笔记类型</span>
+            <select id="noteType">
+              <option value="0" selected>不限</option>
+              <option value="2">图文</option>
+              <option value="1">视频</option>
+            </select>
+          </label>
+
+          <label class="field compact-field">
+            <span>发布时间</span>
+            <select id="noteTime">
+              <option value="0" selected>不限</option>
+              <option value="1">一天内</option>
+              <option value="2">一周内</option>
+              <option value="3">半年内</option>
+            </select>
           </label>
         </div>
 

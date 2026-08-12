@@ -1,6 +1,6 @@
 const realGlobal = globalThis;
 const extensionChrome = realGlobal.chrome;
-importScripts('excel.js');
+importScripts('excel.js', 'search-config.js');
 realGlobal.globalThis = realGlobal;
 realGlobal.chrome = extensionChrome;
 
@@ -65,23 +65,14 @@ const SEARCH_NOTES_API = '/api/sns/web/v2/search/notes';
 const NOTES_HEADERS = ['采集批次', '采集时间', '搜索关键词', '排序方式', '关键词下排名', '笔记链接', '笔记标题', '作者昵称', '评论数', '采集状态'];
 const COMMENTS_HEADERS = ['笔记链接', '评论序号', '一级评论内容和图片链接', '所有二级评论内容和图片链接', '评论采集状态'];
 
-const SEARCH_SORT_OPTIONS = {
-  comment_descending: {
-    label: '最多评论',
-    sort: 'general',
-    tag: 'comment_descending'
-  },
-  popularity_descending: {
-    label: '最多点赞',
-    sort: 'general',
-    tag: 'popularity_descending'
-  },
-  time_descending: {
-    label: '最新',
-    sort: 'general',
-    tag: 'time_descending'
-  }
-};
+const {
+  SEARCH_SORT_OPTIONS,
+  normalizeSearchSort,
+  normalizeNoteType,
+  normalizeNoteTime,
+  createSearchId,
+  buildSearchNotesPayload
+} = realGlobal.XhsSearchConfig;
 
 const state = {
   status: 'idle',
@@ -388,6 +379,8 @@ async function signedPost(api, body, login, { baseUrl = BASE_URL } = {}) {
   log(`请求搜索接口 POST ${api}`, 'api');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30000);
+  const requestTraceId = traceId();
+  const xrayTraceId = traceId();
   const response = await fetch(`${baseUrl}${api}`, {
     method: 'POST',
     credentials: 'include',
@@ -395,7 +388,8 @@ async function signedPost(api, body, login, { baseUrl = BASE_URL } = {}) {
     headers: {
       accept: 'application/json, text/plain, */*',
       'content-type': 'application/json;charset=UTF-8',
-      'x-b3-traceid': traceId(),
+      'x-b3-traceid': requestTraceId,
+      'x-xray-traceid': xrayTraceId,
       'x-s': signed.xs,
       'x-s-common': signed.xs_common,
       'x-t': String(signed.xt)
@@ -422,52 +416,6 @@ function randomToken(length) {
     out += chars[Math.floor(Math.random() * chars.length)];
   }
   return out;
-}
-
-function createSearchId() {
-  return `${randomToken(20)}@${randomToken(20)}`;
-}
-
-function normalizeSearchSort(sortType) {
-  return SEARCH_SORT_OPTIONS[sortType] || SEARCH_SORT_OPTIONS.comment_descending;
-}
-
-function buildSearchNotesPayload({ keyword, page, pageSize, searchId, sortType }) {
-  const sortOption = normalizeSearchSort(sortType);
-  return {
-    keyword,
-    page,
-    page_size: pageSize,
-    search_id: searchId,
-    sort: sortOption.sort,
-    note_type: 0,
-    ext_flags: [],
-    filters: [
-      {
-        tags: [sortOption.tag],
-        type: 'sort_type'
-      },
-      {
-        tags: ['不限'],
-        type: 'filter_note_type'
-      },
-      {
-        tags: ['不限'],
-        type: 'filter_note_time'
-      },
-      {
-        tags: ['不限'],
-        type: 'filter_note_range'
-      },
-      {
-        tags: ['不限'],
-        type: 'filter_pos_distance'
-      }
-    ],
-    geo: '',
-    image_formats: ['jpg', 'webp', 'avif'],
-    message_id: ''
-  };
 }
 
 function parseNotes(searchData, keyword, limit, { rankOffset = 0, sortLabel = '' } = {}) {
@@ -509,9 +457,11 @@ function parseNotes(searchData, keyword, limit, { rankOffset = 0, sortLabel = ''
   return rows;
 }
 
-async function searchNotesByApi({ keyword, limit, login, delaySeconds, sortType }) {
+async function searchNotesByApi({ keyword, limit, login, delaySeconds, sortType, noteType, noteTime }) {
   const targetLimit = Math.max(1, Math.min(20, Number(limit || 10)));
   const sortOption = normalizeSearchSort(sortType);
+  const typeOption = normalizeNoteType(noteType);
+  const timeOption = normalizeNoteTime(noteTime);
   const pageSize = 20;
   const searchId = createSearchId();
   const notesById = new Map();
@@ -531,7 +481,10 @@ async function searchNotesByApi({ keyword, limit, login, delaySeconds, sortType 
       page,
       pageSize,
       searchId,
-      sortType: sortOption.tag
+      sessionId: crypto.randomUUID(),
+      sortType: sortOption.sort,
+      noteType: typeOption.value,
+      noteTime: timeOption.value
     });
     const data = await signedPost(SEARCH_NOTES_API, payload, login, { baseUrl: SEARCH_BASE_URL });
     throwIfStopped();
@@ -802,10 +755,12 @@ async function runCommentCollectionFromNotes({ notes, delaySeconds }) {
   }
 }
 
-async function runCollection({ keyword, limit, delaySeconds, sortType }) {
+async function runCollection({ keyword, limit, delaySeconds, sortType, noteType, noteTime }) {
   state.stopRequested = false;
   const targetLimit = Math.max(1, Math.min(20, Number(limit || 10)));
   const sortOption = normalizeSearchSort(sortType);
+  const typeOption = normalizeNoteType(noteType);
+  const timeOption = normalizeNoteTime(noteTime);
   setTaskProgress('search', 0, targetLimit, `搜索笔记 0/${targetLimit}`);
   setState({
     status: 'running',
@@ -818,13 +773,21 @@ async function runCollection({ keyword, limit, delaySeconds, sortType }) {
     replyCount: 0,
     logs: []
   });
-  log(`开始关键词采集：${keyword}，排序：${sortOption.label}`, 'start');
+  log(`开始关键词采集：${keyword}，排序：${sortOption.label}，类型：${typeOption.label}，时间：${timeOption.label}`, 'start');
 
   const login = await getCookieString();
   throwIfStopped();
   log('登录态检查通过', 'auth');
 
-  const notes = await searchNotesByApi({ keyword, limit, login, delaySeconds, sortType: sortOption.tag });
+  const notes = await searchNotesByApi({
+    keyword,
+    limit,
+    login,
+    delaySeconds,
+    sortType: sortOption.sort,
+    noteType: typeOption.value,
+    noteTime: timeOption.value
+  });
   throwIfStopped();
   if (!notes.length) {
     throw new Error(`${sortOption.label}搜索接口未返回可采集的笔记`);

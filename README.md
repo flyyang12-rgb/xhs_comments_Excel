@@ -17,7 +17,7 @@
 2. 双击 `启动采集工具.bat`。首次运行会自动检查并安装运行环境，请不要关闭窗口。
 3. 脚本会打开 Chrome 扩展管理页和插件文件夹，并自动复制插件路径。
 4. 在 Chrome 开启“开发者模式”，点击“加载已解压的扩展程序”，选择 `xhs_chrome_extension`。
-5. 登录小红书，打开插件，输入关键词并选择“最新 / 最多点赞 / 最多评论”。
+5. 登录小红书，打开插件，输入关键词，再选择排序、笔记类型和发布时间。
 6. 采集期间保持启动窗口打开；完成后导出 `notes_raw.xlsx` 和 `comments_raw.xlsx`。
 
 更详细的插件说明见 [`xhs_chrome_extension/README.md`](xhs_chrome_extension/README.md)。

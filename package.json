@@ -6,6 +6,10 @@
   "engines": {
     "node": ">=18"
   },
+  "scripts": {
+    "test": "npm run test:search && node scripts/test-extension-wiring.js",
+    "test:search": "node scripts/test-search-payload.js"
+  },
   "dependencies": {
     "crypto-js": "^4.2.0"
   }
