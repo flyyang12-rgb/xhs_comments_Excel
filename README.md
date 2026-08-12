@@ -1,24 +1,24 @@
 # 小红书关键词笔记与评论采集
 
-本仓库提供两种采集方式：推荐使用 Chrome 插件完成关键词搜索、评论采集和 Excel 导出；同时保留原有 Python 脚本作为独立工作流。
+这是面向运营同事的小红书 Chrome 采集插件，可按关键词采集笔记、一级评论和二级评论，并导出 Excel。日常使用不需要编程基础。
 
 ## Chrome 插件（推荐）
 
-### 环境要求
+### 使用前准备
 
 - Windows 10/11
 - Chrome
-- Node.js（建议使用当前 LTS 版本）
+- 可正常访问网络（首次运行会自动安装所需组件）
 - 已登录小红书的 Chrome 会话
 
 ### 使用步骤
 
-1. 安装 [Node.js](https://nodejs.org/)。
-2. 双击 `启动采集工具.bat`，保持签名服务窗口打开。
-3. 在 Chrome 打开 `chrome://extensions/`，开启开发者模式。
-4. 点击“加载已解压的扩展程序”，选择 `xhs_chrome_extension`。
+1. 下载项目 ZIP，并完整解压到一个固定文件夹。
+2. 双击 `启动采集工具.bat`。首次运行会自动检查并安装运行环境，请不要关闭窗口。
+3. 脚本会打开 Chrome 扩展管理页和插件文件夹，并自动复制插件路径。
+4. 在 Chrome 开启“开发者模式”，点击“加载已解压的扩展程序”，选择 `xhs_chrome_extension`。
 5. 登录小红书，打开插件，输入关键词并选择“最新 / 最多点赞 / 最多评论”。
-6. 采集完成后导出 `notes_raw.xlsx` 和 `comments_raw.xlsx`。
+6. 采集期间保持启动窗口打开；完成后导出 `notes_raw.xlsx` 和 `comments_raw.xlsx`。
 
 更详细的插件说明见 [`xhs_chrome_extension/README.md`](xhs_chrome_extension/README.md)。
 
@@ -29,21 +29,7 @@
 - [Python 旧版工作流](docs/Python旧版工作流.md)
 - [文档索引](docs/README.md)
 
-## Python 脚本（旧版工作流）
-
-安装依赖：
-
-```powershell
-pip install DrissionPage openpyxl requests
-npm install
-```
-
-依次运行：
-
-```powershell
-python "小红书_ 关键词采集.py"
-python "小红书_comments_raw采集.py"
-```
+旧版 Python 脚本仅作为开发维护资料保留，普通使用者无需运行。
 
 ## 数据与账号安全
 

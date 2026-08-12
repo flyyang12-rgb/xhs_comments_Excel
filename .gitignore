@@ -13,3 +13,4 @@ xhs_cookies.txt
 xhs_chrome_extension/node/
 node.exe
 *.log
+.xhs_setup_complete

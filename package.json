@@ -1,4 +1,11 @@
 {
+  "name": "xhs-comments-excel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "小红书关键词笔记与评论采集插件的本地签名服务",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "crypto-js": "^4.2.0"
   }
