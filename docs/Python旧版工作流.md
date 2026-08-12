@@ -1,8 +1,10 @@
-# 小红书儿童泳衣笔记及评论采集项目说明
+# Python 旧版采集工作流
+
+> 本文档记录仓库中保留的两阶段 Python 采集方案。新用户优先使用 Chrome 插件；需要脚本化处理或维护旧数据流程时再参考本文。
 
 ## 1. 项目用途
 
-本项目用于采集小红书搜索结果中的儿童泳衣相关笔记，并基于采集到的笔记链接继续采集一级评论数据。
+该旧版流程用于采集预设关键词的小红书笔记，并基于采集到的笔记链接继续采集一级评论数据。仓库脚本中的默认关键词仅作为历史示例，使用前应按实际调研主题调整。
 
 当前主流程分为两步：
 
@@ -27,10 +29,10 @@
 
 ### Python
 
-当前项目使用 Python 3.9 运行，示例路径：
+建议使用 Python 3.9 或更高兼容版本：
 
 ```powershell
-C:\Users\20898\AppData\Local\Programs\Python\Python39\python.exe
+python --version
 ```
 
 需要的 Python 包：
@@ -101,10 +103,10 @@ npm install
 运行：
 
 ```powershell
-C:\Users\20898\AppData\Local\Programs\Python\Python39\python.exe "D:\AI_Project\02小红书儿童太阳镜笔记及评论采集需求\小红书_ 关键词采集.py"
+python "小红书_ 关键词采集.py"
 ```
 
-脚本会使用下面这些关键词进行搜索：
+脚本当前默认使用下面这些历史示例关键词：
 
 - 儿童泳衣推荐
 - 女童泳衣推荐
@@ -122,7 +124,7 @@ C:\Users\20898\AppData\Local\Programs\Python\Python39\python.exe "D:\AI_Project\
 运行：
 
 ```powershell
-C:\Users\20898\AppData\Local\Programs\Python\Python39\python.exe "D:\AI_Project\02小红书儿童太阳镜笔记及评论采集需求\小红书_comments_raw采集.py"
+python "小红书_comments_raw采集.py"
 ```
 
 默认行为：
@@ -137,13 +139,13 @@ C:\Users\20898\AppData\Local\Programs\Python\Python39\python.exe "D:\AI_Project\
 
 ```powershell
 # 每篇笔记最多采集 20 条评论
-C:\Users\20898\AppData\Local\Programs\Python\Python39\python.exe "D:\AI_Project\02小红书儿童太阳镜笔记及评论采集需求\小红书_comments_raw采集.py" --max-comments 20
+python "小红书_comments_raw采集.py" --max-comments 20
 
 # 只处理前 3 篇笔记，适合测试
-C:\Users\20898\AppData\Local\Programs\Python\Python39\python.exe "D:\AI_Project\02小红书儿童太阳镜笔记及评论采集需求\小红书_comments_raw采集.py" --limit-notes 3
+python "小红书_comments_raw采集.py" --limit-notes 3
 
 # 调整每篇笔记之间的等待时间
-C:\Users\20898\AppData\Local\Programs\Python\Python39\python.exe "D:\AI_Project\02小红书儿童太阳镜笔记及评论采集需求\小红书_comments_raw采集.py" --sleep 60
+python "小红书_comments_raw采集.py" --sleep 60
 ```
 
 ## 6. Cookie 说明

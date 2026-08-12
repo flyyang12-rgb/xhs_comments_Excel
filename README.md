@@ -22,6 +22,13 @@
 
 更详细的插件说明见 [`xhs_chrome_extension/README.md`](xhs_chrome_extension/README.md)。
 
+## 文档
+
+- [快速使用指南](docs/快速使用指南.md)
+- [AI 应用案例申报模板](docs/AI应用案例申报模板.md)
+- [Python 旧版工作流](docs/Python旧版工作流.md)
+- [文档索引](docs/README.md)
+
 ## Python 脚本（旧版工作流）
 
 安装依赖：
