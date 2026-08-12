@@ -1,0 +1,15 @@
+node_modules/
+__pycache__/
+*.py[cod]
+.idea/
+.vscode/
+
+# 本地登录态与采集产物
+xhs_cookies.txt
+*.xlsx
+*.csv
+
+# 本地运行时与日志
+xhs_chrome_extension/node/
+node.exe
+*.log
