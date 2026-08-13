@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "小红书关键词笔记评论采集",
-  "description": "按关键词和排序方式采集小红书笔记及全部一级、二级评论，并导出 Excel。",
-  "version": "1.0.0",
+  "description": "按关键词或指定笔记链接采集小红书公开笔记及一级、二级评论，并导出 Excel。",
+  "version": "1.1.0",
   "action": {
     "default_title": "小红书采集",
     "default_popup": "popup.html"
@@ -22,7 +22,9 @@
     "https://xiaohongshu.com/*",
     "https://www.xiaohongshu.com/*",
     "https://edith.xiaohongshu.com/*",
-    "https://so.xiaohongshu.com/*"
+    "https://so.xiaohongshu.com/*",
+    "https://xhslink.com/*",
+    "http://xhslink.com/*"
   ],
   "sandbox": {
     "pages": [

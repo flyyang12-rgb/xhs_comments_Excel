@@ -9,95 +9,123 @@
   <body>
     <main class="panel">
       <header class="header">
-        <div class="title-block">
-          <span class="eyebrow">XHS Collector</span>
-          <h1>小红书采集</h1>
-          <p>登录后，配置关键词并开始采集。</p>
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true"><i></i></span>
+          <div class="title-block">
+            <span class="eyebrow">XHS Collector <em id="appVersion">v1.1.0</em></span>
+            <h1>小红书采集</h1>
+          </div>
         </div>
         <span id="stateBadge" class="badge checking">检测中</span>
       </header>
 
       <section class="controls">
-        <label class="field keyword-field">
-          <span>目标关键词</span>
-          <input id="keyword" type="text" value="寻欢作乐" autocomplete="off" placeholder="例如：寻欢作乐">
-        </label>
-
-        <div class="meta-row">
-          <label class="field compact-field">
-            <span>条数</span>
-            <input id="limit" type="number" value="10" min="1" max="20" step="1" inputmode="numeric">
-          </label>
-
-          <label class="field compact-field sort-field">
-            <span>排序</span>
-            <select id="sortType">
-              <option value="general">综合</option>
-              <option value="comment_descending" selected>最多评论</option>
-              <option value="popularity_descending">最多点赞</option>
-              <option value="time_descending">最新</option>
-              <option value="collect_descending">最多收藏</option>
-            </select>
-          </label>
-
-          <label class="field compact-field">
-            <span>间隔秒</span>
-            <input id="delay" type="number" value="6" min="3" max="30" step="1" inputmode="numeric">
-          </label>
+        <div class="mode-tabs" role="tablist" aria-label="采集方式">
+          <button id="keywordModeBtn" class="mode-tab active" type="button" role="tab" aria-selected="true">关键词采集</button>
+          <button id="linkModeBtn" class="mode-tab" type="button" role="tab" aria-selected="false">笔记链接</button>
         </div>
 
-        <div class="filter-row">
-          <label class="field compact-field">
-            <span>笔记类型</span>
-            <select id="noteType">
-              <option value="0" selected>不限</option>
-              <option value="2">图文</option>
-              <option value="1">视频</option>
-            </select>
+        <div id="keywordModePanel" class="mode-panel">
+          <label class="field keyword-field">
+            <span>目标关键词</span>
+            <input id="keyword" type="text" value="寻欢作乐" autocomplete="off" placeholder="例如：寻欢作乐">
           </label>
 
-          <label class="field compact-field">
-            <span>发布时间</span>
-            <select id="noteTime">
-              <option value="0" selected>不限</option>
-              <option value="1">一天内</option>
-              <option value="2">一周内</option>
-              <option value="3">半年内</option>
-            </select>
+          <div class="meta-row">
+            <label class="field compact-field">
+              <span>条数</span>
+              <input id="limit" type="number" value="10" min="1" max="20" step="1" inputmode="numeric">
+            </label>
+
+            <label class="field compact-field sort-field">
+              <span>排序</span>
+              <select id="sortType">
+                <option value="general">综合</option>
+                <option value="comment_descending" selected>最多评论</option>
+                <option value="popularity_descending">最多点赞</option>
+                <option value="time_descending">最新</option>
+                <option value="collect_descending">最多收藏</option>
+              </select>
+            </label>
+
+            <label class="field compact-field">
+              <span>间隔秒</span>
+              <input id="delay" type="number" value="6" min="3" max="30" step="1" inputmode="numeric">
+            </label>
+          </div>
+
+          <details id="advancedFilters" class="advanced-filters">
+            <summary>更多筛选</summary>
+            <div class="filter-row">
+              <label class="field compact-field">
+                <span>笔记类型</span>
+                <select id="noteType">
+                  <option value="0" selected>不限</option>
+                  <option value="2">图文</option>
+                  <option value="1">视频</option>
+                </select>
+              </label>
+
+              <label class="field compact-field">
+                <span>发布时间</span>
+                <select id="noteTime">
+                  <option value="0" selected>不限</option>
+                  <option value="1">一天内</option>
+                  <option value="2">一周内</option>
+                  <option value="3">半年内</option>
+                </select>
+              </label>
+            </div>
+          </details>
+        </div>
+
+        <div id="linkModePanel" class="mode-panel" hidden>
+          <label class="field">
+            <span>笔记链接</span>
+            <input id="noteLinks" type="text" autocomplete="off" placeholder="粘贴一条笔记链接">
           </label>
         </div>
 
         <div class="command-bar">
-          <button id="startBtn" class="primary" type="button">开始采集 · 最多评论 · 10条</button>
+          <button id="startBtn" class="primary" type="button">开始采集</button>
           <div class="secondary-actions">
-            <button id="importBtn" type="button">导入笔记</button>
             <button id="stopBtn" type="button" disabled>停止</button>
             <button id="exportBtn" type="button" disabled>导出</button>
           </div>
-          <input id="noteFile" type="file" accept=".xlsx" hidden>
         </div>
       </section>
 
-      <section class="status-panel">
+      <section class="overview-panel">
         <div class="status-head">
           <span>任务状态</span>
           <span class="status-hint">自动保存采集结果</span>
         </div>
         <div class="bar"><span id="progressBar"></span></div>
         <div id="statusText" class="status">等待输入关键词</div>
+        <div class="overview-stats">
+          <div><span>笔记</span><b id="noteCount">0</b></div>
+          <div><span>一级评论</span><b id="commentCount">0</b></div>
+          <div><span>二级评论</span><b id="replyCount">0</b></div>
+        </div>
       </section>
 
-      <section class="stats-grid">
-        <div><b id="noteCount">0</b><span>笔记</span></div>
-        <div><b id="commentCount">0</b><span>一级评论</span></div>
-        <div><b id="replyCount">0</b><span>二级评论</span></div>
-      </section>
-
-      <section class="activity">
-        <div class="activity-title">采集记录</div>
-        <ol id="log" class="log"></ol>
-      </section>
+      <ol id="log" class="log" hidden></ol>
     </main>
+
+    <div id="stopDialog" class="stop-dialog" role="dialog" aria-modal="true" aria-labelledby="stopDialogTitle" hidden>
+      <div class="stop-sheet">
+        <strong id="stopDialogTitle">怎么停止？</strong>
+        <button id="finishCurrentBtn" class="stop-option" type="button">
+          <b>采完当前笔记</b>
+          <span>保存完整评论，推荐</span>
+        </button>
+        <button id="immediateStopBtn" class="stop-option danger" type="button">
+          <b>立即停止</b>
+          <span>当前笔记可能不完整</span>
+        </button>
+        <button id="cancelStopBtn" class="stop-cancel" type="button">取消</button>
+      </div>
+    </div>
     <script src="popup.js"></script>
   </body>
 </html>

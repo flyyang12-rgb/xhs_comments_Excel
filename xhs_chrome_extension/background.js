@@ -1,8 +1,33 @@
 const realGlobal = globalThis;
 const extensionChrome = realGlobal.chrome;
-importScripts('excel.js', 'search-config.js');
+importScripts('excel.js', 'search-config.js', 'note-links.js');
 realGlobal.globalThis = realGlobal;
 realGlobal.chrome = extensionChrome;
+
+const activeControllers = new Set();
+const pendingDelayCancels = new Set();
+
+function trackedController(timeoutMs) {
+  const controller = new AbortController();
+  activeControllers.add(controller);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return {
+    controller,
+    release() {
+      clearTimeout(timer);
+      activeControllers.delete(controller);
+    }
+  };
+}
+
+function abortActiveWork() {
+  for (const controller of activeControllers) {
+    controller.abort();
+  }
+  for (const cancel of pendingDelayCancels) {
+    cancel();
+  }
+}
 
 async function ensureSignerOffscreen() {
   const offscreenUrl = chrome.runtime.getURL('signer-offscreen.html');
@@ -26,12 +51,11 @@ async function signRequest(api, data, a1, method = 'GET') {
 }
 
 async function signRequestWithLocalHelper(api, data, a1, method = 'GET') {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 2500);
+  const request = trackedController(2500);
   try {
     const response = await fetch('http://127.0.0.1:18765/sign', {
       method: 'POST',
-      signal: controller.signal,
+      signal: request.controller.signal,
       headers: {
         'content-type': 'application/json;charset=UTF-8'
       },
@@ -49,13 +73,16 @@ async function signRequestWithLocalHelper(api, data, a1, method = 'GET') {
     log(`签名完成 ${method} ${api}`, 'sign');
     return result.signed;
   } catch (error) {
+    if (state.stopRequested) {
+      throw new Error('__STOPPED__');
+    }
     const text = String(error?.message || error);
     if (text.includes('Failed to fetch') || text.includes('aborted') || text.includes('NetworkError')) {
       throw new Error('本机签名服务未启动：请先双击项目根目录的“启动小红书签名服务.bat”，保持黑色窗口打开后重试');
     }
     throw new Error(`本机签名服务失败：${text}`);
   } finally {
-    clearTimeout(timer);
+    request.release();
   }
 }
 
@@ -73,9 +100,11 @@ const {
   createSearchId,
   buildSearchNotesPayload
 } = realGlobal.XhsSearchConfig;
+const { extractUrls, isShortLink, parseNoteUrl } = realGlobal.XhsNoteLinks;
 
 const state = {
   status: 'idle',
+  mode: 'keyword',
   message: '等待输入关键词',
   progress: 0,
   keyword: '',
@@ -83,8 +112,11 @@ const state = {
   commentRows: [],
   commentCount: 0,
   replyCount: 0,
+  completedNotes: 0,
+  targetNotes: 0,
   logs: [],
   stopRequested: false,
+  stopAfterCurrent: false,
   taskProgress: {
     phase: 'idle',
     current: 0,
@@ -114,6 +146,7 @@ function setState(patch) {
 function publicState() {
   return {
     status: state.status,
+    mode: state.mode,
     message: state.message,
     progress: state.progress,
     keyword: state.keyword,
@@ -121,6 +154,10 @@ function publicState() {
     commentRows: state.commentRows,
     commentCount: state.commentCount,
     replyCount: state.replyCount,
+    completedNotes: state.completedNotes,
+    targetNotes: state.targetNotes,
+    stopRequested: state.stopRequested,
+    stopAfterCurrent: state.stopAfterCurrent,
     logs: state.logs,
     taskProgress: state.taskProgress
   };
@@ -157,7 +194,20 @@ function randomDelay(seconds) {
   }
   const base = Math.max(3, Number(seconds ?? 6));
   const jitter = Math.floor(Math.random() * 2500);
-  return sleep(base * 1000 + jitter);
+  return new Promise((resolve) => {
+    let timer;
+    const finish = () => {
+      clearTimeout(timer);
+      pendingDelayCancels.delete(finish);
+      resolve();
+    };
+    timer = setTimeout(finish, base * 1000 + jitter);
+    pendingDelayCancels.add(finish);
+  });
+}
+
+function resultSummary(label, total, tail) {
+  return `${label} · ${state.completedNotes}/${Math.max(0, Number(total || 0))}篇 · 评论${state.commentCount} · 回复${state.replyCount} · ${tail}`;
 }
 
 function throwIfStopped() {
@@ -346,20 +396,29 @@ async function signedGet(api, params, login) {
   const spliceApi = `${api}?${query}`;
   const signed = await signRequest(spliceApi, '', login.a1, 'GET');
   log(`请求评论接口 GET ${api}`, 'api');
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30000);
-  const response = await fetch(`${BASE_URL}${spliceApi}`, {
-    method: 'GET',
-    credentials: 'include',
-    signal: controller.signal,
-    headers: {
-      accept: 'application/json, text/plain, */*',
-      'x-b3-traceid': traceId(),
-      'x-s': signed.xs,
-      'x-s-common': signed.xs_common,
-      'x-t': String(signed.xt)
+  const request = trackedController(30000);
+  let response;
+  try {
+    response = await fetch(`${BASE_URL}${spliceApi}`, {
+      method: 'GET',
+      credentials: 'include',
+      signal: request.controller.signal,
+      headers: {
+        accept: 'application/json, text/plain, */*',
+        'x-b3-traceid': traceId(),
+        'x-s': signed.xs,
+        'x-s-common': signed.xs_common,
+        'x-t': String(signed.xt)
+      }
+    });
+  } catch (error) {
+    if (state.stopRequested) {
+      throw new Error('__STOPPED__');
     }
-  }).finally(() => clearTimeout(timer));
+    throw error;
+  } finally {
+    request.release();
+  }
   if (!response.ok) {
     if (response.status === 461) {
       throw new Error('接口 HTTP 461：触发小红书安全限制，请停止采集，等待一段时间后把请求间隔调大再试');
@@ -376,26 +435,35 @@ async function signedGet(api, params, login) {
 async function signedPost(api, body, login, { baseUrl = BASE_URL } = {}) {
   const payload = JSON.stringify(body || {});
   const signed = await signRequest(api, payload, login.a1, 'POST');
-  log(`请求搜索接口 POST ${api}`, 'api');
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30000);
+  log(`请求接口 POST ${api}`, 'api');
+  const request = trackedController(30000);
   const requestTraceId = traceId();
   const xrayTraceId = traceId();
-  const response = await fetch(`${baseUrl}${api}`, {
-    method: 'POST',
-    credentials: 'include',
-    signal: controller.signal,
-    headers: {
-      accept: 'application/json, text/plain, */*',
-      'content-type': 'application/json;charset=UTF-8',
-      'x-b3-traceid': requestTraceId,
-      'x-xray-traceid': xrayTraceId,
-      'x-s': signed.xs,
-      'x-s-common': signed.xs_common,
-      'x-t': String(signed.xt)
-    },
-    body: payload
-  }).finally(() => clearTimeout(timer));
+  let response;
+  try {
+    response = await fetch(`${baseUrl}${api}`, {
+      method: 'POST',
+      credentials: 'include',
+      signal: request.controller.signal,
+      headers: {
+        accept: 'application/json, text/plain, */*',
+        'content-type': 'application/json;charset=UTF-8',
+        'x-b3-traceid': requestTraceId,
+        'x-xray-traceid': xrayTraceId,
+        'x-s': signed.xs,
+        'x-s-common': signed.xs_common,
+        'x-t': String(signed.xt)
+      },
+      body: payload
+    });
+  } catch (error) {
+    if (state.stopRequested) {
+      throw new Error('__STOPPED__');
+    }
+    throw error;
+  } finally {
+    request.release();
+  }
   if (!response.ok) {
     if (response.status === 461) {
       throw new Error('接口 HTTP 461：触发小红书安全限制，请停止采集，等待一段时间后把请求间隔调大再试');
@@ -455,6 +523,90 @@ function parseNotes(searchData, keyword, limit, { rankOffset = 0, sortLabel = ''
     });
   }
   return rows;
+}
+
+async function resolveSharedNoteUrl(url) {
+  if (!isShortLink(url)) {
+    return url;
+  }
+  const request = trackedController(15000);
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      credentials: 'omit',
+      signal: request.controller.signal
+    });
+    return response.url || url;
+  } finally {
+    request.release();
+  }
+}
+
+async function resolveNoteLinks(rawText) {
+  const urls = extractUrls(rawText);
+  if (!urls.length) {
+    throw new Error('没有识别到笔记链接，请粘贴小红书链接或分享文字');
+  }
+  if (urls.length > 1) {
+    throw new Error('一次只能采集一个笔记链接');
+  }
+  const notes = [];
+  const invalid = [];
+  const seen = new Set();
+  for (const sourceUrl of urls) {
+    try {
+      const resolvedUrl = await resolveSharedNoteUrl(sourceUrl);
+      const parsed = parseNoteUrl(resolvedUrl);
+      if (!parsed) {
+        invalid.push(sourceUrl);
+        continue;
+      }
+      if (!seen.has(parsed.noteId)) {
+        seen.add(parsed.noteId);
+        notes.push(parsed);
+      }
+    } catch (_) {
+      invalid.push(sourceUrl);
+    }
+  }
+  return { notes, invalid, total: urls.length };
+}
+
+async function getNoteDetail(input, login, rank) {
+  const data = await signedPost('/api/sns/web/v1/feed', {
+    source_note_id: input.noteId,
+    image_formats: ['jpg', 'webp', 'avif'],
+    extra: { need_body_topic: '1' },
+    xsec_source: input.xsecSource || 'pc_feed',
+    xsec_token: input.xsecToken || ''
+  }, login);
+  const item = data?.data?.items?.[0];
+  const card = item?.note_card || {};
+  if (!item || !Object.keys(card).length) {
+    throw new Error('笔记详情接口未返回有效数据');
+  }
+  const noteId = item.id || card.note_id || input.noteId;
+  const xsecToken = item.xsec_token || input.xsecToken || '';
+  const params = new URLSearchParams();
+  if (xsecToken) {
+    params.set('xsec_token', xsecToken);
+  }
+  params.set('xsec_source', input.xsecSource || 'pc_feed');
+  return {
+    batch: batchId('笔记链接'),
+    collectTime: formatDate(),
+    keyword: '笔记链接',
+    sortLabel: '指定链接',
+    rank,
+    link: `https://www.xiaohongshu.com/explore/${noteId}?${params.toString()}`,
+    title: card.display_title || card.title || '无标题',
+    author: card.user?.nick_name || card.user?.nickname || card.user?.name || '未知作者',
+    commentCount: card.interact_info?.comment_count || '0',
+    status: '成功',
+    noteId,
+    xsecToken
+  };
 }
 
 async function searchNotesByApi({ keyword, limit, login, delaySeconds, sortType, noteType, noteTime }) {
@@ -666,97 +818,151 @@ async function collectCommentsForNote(note, login, delaySeconds) {
   }
 }
 
-function normalizeImportedNotes(notes) {
-  return (notes || []).map((note, index) => {
-    const link = String(note.link || '').trim();
-    let noteId = note.noteId || '';
-    let xsecToken = note.xsecToken || '';
-    try {
-      const url = new URL(link);
-      const parts = url.pathname.split('/').filter(Boolean);
-      noteId = noteId || parts[parts.length - 1] || '';
-      xsecToken = xsecToken || url.searchParams.get('xsec_token') || '';
-    } catch (_) {}
-    return {
-      batch: note.batch || '',
-      collectTime: note.collectTime || '',
-      keyword: note.keyword || '',
-      sortLabel: note.sortLabel || '',
-      rank: Number(note.rank || index + 1),
-      link,
-      title: note.title || '',
-      author: note.author || '',
-      commentCount: note.commentCount || '',
-      status: note.status || '导入',
-      noteId,
-      xsecToken
-    };
-  }).filter((note) => note.link && note.noteId && note.xsecToken);
+function failedLinkedNote(input, rank, error) {
+  return {
+    batch: batchId('笔记链接'),
+    collectTime: formatDate(),
+    keyword: '笔记链接',
+    sortLabel: '指定链接',
+    rank,
+    link: input.sourceUrl || `https://www.xiaohongshu.com/explore/${input.noteId}`,
+    title: '',
+    author: '',
+    commentCount: '',
+    status: `详情失败：${String(error?.message || error)}`,
+    noteId: input.noteId,
+    xsecToken: input.xsecToken || ''
+  };
 }
 
-async function runCommentCollectionFromNotes({ notes, delaySeconds }) {
-  const importedNotes = normalizeImportedNotes(notes);
-  if (!importedNotes.length) {
-    throw new Error('导入文件里没有可采集的笔记链接');
-  }
-
+async function runLinkCollection({ rawText, delaySeconds }) {
   state.stopRequested = false;
-  setTaskProgress('comments', 0, importedNotes.length, `采集评论 0/${importedNotes.length}`);
+  state.stopAfterCurrent = false;
+  state.mode = 'links';
+  setTaskProgress('resolve', 0, 0, '解析笔记链接');
   setState({
     status: 'running',
-    message: '检查小红书登录态',
-    progress: 3,
-    notes: importedNotes,
+    keyword: '笔记链接',
+    message: '正在解析笔记链接',
+    progress: 2,
+    notes: [],
     commentRows: [],
     commentCount: 0,
     replyCount: 0,
+    completedNotes: 0,
+    targetNotes: 0,
     logs: []
   });
-  log(`导入 ${importedNotes.length} 条笔记，开始采评论`, 'import');
+  log('开始按指定笔记链接采集', 'start');
 
+  const resolved = await resolveNoteLinks(rawText);
+  throwIfStopped();
+  if (!resolved.notes.length) {
+    throw new Error('没有识别到有效的小红书笔记链接');
+  }
+  setState({ targetNotes: resolved.notes.length });
+  log(`识别到 ${resolved.notes.length} 篇笔记${resolved.invalid.length ? `，跳过 ${resolved.invalid.length} 个无效链接` : ''}`, 'import');
+
+  setTaskProgress('details', 0, resolved.notes.length, `读取详情 0/${resolved.notes.length}`);
+  setState({ message: '检查小红书登录态', progress: 5 });
   const login = await getCookieString();
   throwIfStopped();
   log('登录态检查通过', 'auth');
 
-  for (let i = 0; i < importedNotes.length; i += 1) {
-    if (state.stopRequested) {
-      log('用户已停止采集', 'stop');
-      break;
-    }
-    const note = importedNotes[i];
-    setTaskProgress('comments', i + 1, importedNotes.length, `采集评论 ${i + 1}/${importedNotes.length}`);
+  const notes = [];
+  for (let i = 0; i < resolved.notes.length; i += 1) {
+    throwIfStopped();
+    const input = resolved.notes[i];
+    setTaskProgress('details', i + 1, resolved.notes.length, `读取详情 ${i + 1}/${resolved.notes.length}`);
     setState({
-      message: `采集评论 ${i + 1}/${importedNotes.length}: ${note.title || note.noteId}`,
-      progress: 5 + Math.round((i / importedNotes.length) * 90)
+      message: `读取笔记详情 ${i + 1}/${resolved.notes.length}`,
+      progress: 5 + Math.round(((i + 1) / resolved.notes.length) * 20)
     });
-    log(`采集导入笔记 ${i + 1}/${importedNotes.length}: ${note.title || note.noteId}`, 'comment');
     try {
-      await collectCommentsForNote(note, login, delaySeconds ?? 6);
+      notes.push(await getNoteDetail(input, login, i + 1));
+      log(`笔记详情 ${i + 1}/${resolved.notes.length} 读取成功`, 'api');
     } catch (error) {
       const text = String(error?.message || error);
-      state.commentRows.push([note.link, '', '', '', `失败：${text}`]);
-      log(`笔记 ${i + 1} 评论采集失败：${text}`, 'error');
+      if (text === '__STOPPED__') {
+        throw error;
+      }
+      if (text.includes('461') || text.includes('安全') || text.toLowerCase().includes('captcha')) {
+        throw error;
+      }
+      notes.push(failedLinkedNote(input, i + 1, error));
+      log(`笔记详情 ${i + 1} 读取失败：${text}`, 'error');
     }
-    if (!state.stopRequested) {
+    setState({ notes: [...notes] });
+    if (i + 1 < resolved.notes.length && !state.stopRequested) {
       await randomDelay(delaySeconds ?? 6);
     }
   }
 
-  setTaskProgress('comments', state.stopRequested ? state.taskProgress.current : importedNotes.length, importedNotes.length, state.stopRequested ? '已停止' : `采集评论 ${importedNotes.length}/${importedNotes.length}`);
+  throwIfStopped();
+  await downloadBlob(createWorkbookBlob('notes_raw', noteRows()), 'notes_raw.xlsx');
+  log('已下载 notes_raw.xlsx', 'download');
+
+  const successfulNotes = notes.filter((note) => note.status === '成功');
+  for (const note of notes.filter((item) => item.status !== '成功')) {
+    state.commentRows.push([note.link, '', '', '', note.status]);
+  }
+
+  for (let i = 0; i < successfulNotes.length; i += 1) {
+    if (state.stopRequested) {
+      log('用户已停止采集', 'stop');
+      break;
+    }
+    const note = successfulNotes[i];
+    setTaskProgress('comments', i + 1, successfulNotes.length, `采集评论 ${i + 1}/${successfulNotes.length}`);
+    setState({
+      message: `采集评论 ${i + 1}/${successfulNotes.length}: ${note.title || note.noteId}`,
+      progress: 25 + Math.round((i / Math.max(1, successfulNotes.length)) * 70)
+    });
+    log(`采集指定笔记 ${i + 1}/${successfulNotes.length}: ${note.title || note.noteId}`, 'comment');
+    try {
+      await collectCommentsForNote(note, login, delaySeconds ?? 6);
+      state.completedNotes += 1;
+    } catch (error) {
+      const text = String(error?.message || error);
+      if (text === '__STOPPED__') {
+        throw error;
+      }
+      if (text.includes('461') || text.includes('安全') || text.toLowerCase().includes('captcha')) {
+        throw error;
+      }
+      state.commentRows.push([note.link, '', '', '', `失败：${text}`]);
+      log(`笔记 ${i + 1} 评论采集失败：${text}`, 'error');
+    }
+    if (state.stopAfterCurrent) {
+      log('当前笔记已采完，按用户选择停止', 'stop');
+      break;
+    }
+    if (i + 1 < successfulNotes.length && !state.stopRequested) {
+      await randomDelay(delaySeconds ?? 6);
+    }
+  }
+
+  const gracefulStop = state.stopAfterCurrent && !state.stopRequested;
+  setTaskProgress('comments', state.completedNotes, state.targetNotes, state.stopRequested ? '已停止' : (gracefulStop ? '已停止' : '已完成'));
   setState({
     status: 'idle',
-    message: state.stopRequested ? '已停止，可导出已采集评论' : '评论采集完成，正在下载 Excel',
-    progress: state.stopRequested ? state.progress : 100
+    message: state.stopRequested
+      ? resultSummary('已停止', state.targetNotes, '可导出')
+      : resultSummary(gracefulStop ? '已停止' : '已完成', state.targetNotes, '正在下载'),
+    progress: state.stopRequested || gracefulStop ? state.progress : 100
   });
   if (!state.stopRequested) {
     await downloadBlob(createWorkbookBlob('comments_raw', commentRows()), 'comments_raw.xlsx');
     log('已下载 comments_raw.xlsx', 'download');
-    setState({ message: '评论采集完成，Excel 已下载' });
+    setState({ message: resultSummary(gracefulStop ? '已停止' : '已完成', state.targetNotes, '已下载') });
   }
+  state.stopAfterCurrent = false;
 }
 
 async function runCollection({ keyword, limit, delaySeconds, sortType, noteType, noteTime }) {
   state.stopRequested = false;
+  state.stopAfterCurrent = false;
+  state.mode = 'keyword';
   const targetLimit = Math.max(1, Math.min(20, Number(limit || 10)));
   const sortOption = normalizeSearchSort(sortType);
   const typeOption = normalizeNoteType(noteType);
@@ -771,6 +977,8 @@ async function runCollection({ keyword, limit, delaySeconds, sortType, noteType,
     commentRows: [],
     commentCount: 0,
     replyCount: 0,
+    completedNotes: 0,
+    targetNotes: targetLimit,
     logs: []
   });
   log(`开始关键词采集：${keyword}，排序：${sortOption.label}，类型：${typeOption.label}，时间：${timeOption.label}`, 'start');
@@ -811,22 +1019,32 @@ async function runCollection({ keyword, limit, delaySeconds, sortType, noteType,
     });
     log(`采集笔记 ${i + 1}/${notes.length}: ${note.title || note.noteId}`, 'comment');
     await collectCommentsForNote(note, login, delaySeconds ?? 6);
+    state.completedNotes += 1;
+    if (state.stopAfterCurrent) {
+      log('当前笔记已采完，按用户选择停止', 'stop');
+      break;
+    }
     if (!state.stopRequested) {
       await randomDelay(delaySeconds ?? 6);
     }
   }
+  state.targetNotes = notes.length;
 
-  setTaskProgress('comments', state.stopRequested ? state.taskProgress.current : notes.length, notes.length, state.stopRequested ? '已停止' : `采集评论 ${notes.length}/${notes.length}`);
+  const gracefulStop = state.stopAfterCurrent && !state.stopRequested;
+  setTaskProgress('comments', state.completedNotes, state.targetNotes, state.stopRequested ? '已停止' : (gracefulStop ? '已停止' : '已完成'));
   setState({
-    status: state.stopRequested ? 'idle' : 'idle',
-    message: state.stopRequested ? '已停止，可导出已采集数据' : '采集完成，正在下载 Excel',
-    progress: state.stopRequested ? state.progress : 100
+    status: 'idle',
+    message: state.stopRequested
+      ? resultSummary('已停止', state.targetNotes, '可导出')
+      : resultSummary(gracefulStop ? '已停止' : '已完成', state.targetNotes, '正在下载'),
+    progress: state.stopRequested || gracefulStop ? state.progress : 100
   });
   if (!state.stopRequested) {
     await downloadBlob(createWorkbookBlob('comments_raw', commentRows()), 'comments_raw.xlsx');
     log('已下载 comments_raw.xlsx', 'download');
-    setState({ message: '采集完成，Excel 已下载' });
+    setState({ message: resultSummary(gracefulStop ? '已停止' : '已完成', state.targetNotes, '已下载') });
   }
+  state.stopAfterCurrent = false;
 }
 
 function noteRows() {
@@ -888,11 +1106,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     if (message?.type === 'STOP_COLLECT') {
       state.stopRequested = true;
-      setTaskProgress(state.taskProgress.phase, state.taskProgress.current, state.taskProgress.total, '正在停止');
+      state.stopAfterCurrent = false;
+      abortActiveWork();
+      setTaskProgress(state.taskProgress.phase, state.taskProgress.current, state.taskProgress.total, '正在立即停止');
       setState({
-        status: 'idle',
-        message: '正在停止，当前请求完成后退出，可先导出已采集数据'
+        status: 'running',
+        message: '正在立即停止'
       });
+      sendResponse({ ok: true });
+      return;
+    }
+    if (message?.type === 'STOP_AFTER_CURRENT') {
+      if (state.status !== 'running') {
+        sendResponse({ ok: false, error: '当前没有正在进行的采集' });
+        return;
+      }
+      state.stopAfterCurrent = true;
+      setState({ message: '将在当前笔记采完后停止' });
+      log('已选择：采完当前笔记后停止', 'stop');
       sendResponse({ ok: true });
       return;
     }
@@ -912,7 +1143,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           setTaskProgress(state.taskProgress.phase, state.taskProgress.current, state.taskProgress.total, '已停止');
           setState({
             status: 'idle',
-            message: '已停止，可导出已采集数据'
+            message: resultSummary('已停止', state.targetNotes || state.taskProgress.total, '可导出')
           });
           log('用户已停止采集', 'stop');
           return;
@@ -927,19 +1158,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: true });
       return;
     }
-    if (message?.type === 'COLLECT_COMMENTS_FROM_NOTES') {
+    if (message?.type === 'START_LINK_COLLECT') {
       if (state.status === 'running') {
         sendResponse({ ok: false, error: '采集正在进行中' });
         return;
       }
-      runCommentCollectionFromNotes(message).catch((error) => {
+      runLinkCollection(message).catch((error) => {
         const text = String(error?.message || error);
         if (text === '__STOPPED__') {
           setTaskProgress(state.taskProgress.phase, state.taskProgress.current, state.taskProgress.total, '已停止');
-          setState({
-            status: 'idle',
-            message: '已停止，可导出已采集评论'
-          });
+          setState({ status: 'idle', message: resultSummary('已停止', state.targetNotes || state.taskProgress.total, '可导出') });
           log('用户已停止采集', 'stop');
           return;
         }
@@ -951,6 +1179,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         log(`失败：${text}`, 'error');
       });
       sendResponse({ ok: true });
+      return;
     }
   })().catch((error) => {
     sendResponse({ ok: false, error: String(error?.message || error) });

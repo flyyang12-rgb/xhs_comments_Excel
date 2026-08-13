@@ -1,15 +1,24 @@
 const els = {
+  appVersion: document.getElementById('appVersion'),
+  keywordModeBtn: document.getElementById('keywordModeBtn'),
+  linkModeBtn: document.getElementById('linkModeBtn'),
+  keywordModePanel: document.getElementById('keywordModePanel'),
+  linkModePanel: document.getElementById('linkModePanel'),
   keyword: document.getElementById('keyword'),
+  noteLinks: document.getElementById('noteLinks'),
   limit: document.getElementById('limit'),
   sortType: document.getElementById('sortType'),
   noteType: document.getElementById('noteType'),
   noteTime: document.getElementById('noteTime'),
   delay: document.getElementById('delay'),
+  advancedFilters: document.getElementById('advancedFilters'),
   startBtn: document.getElementById('startBtn'),
-  importBtn: document.getElementById('importBtn'),
-  noteFile: document.getElementById('noteFile'),
   stopBtn: document.getElementById('stopBtn'),
   exportBtn: document.getElementById('exportBtn'),
+  stopDialog: document.getElementById('stopDialog'),
+  finishCurrentBtn: document.getElementById('finishCurrentBtn'),
+  immediateStopBtn: document.getElementById('immediateStopBtn'),
+  cancelStopBtn: document.getElementById('cancelStopBtn'),
   stateBadge: document.getElementById('stateBadge'),
   progressBar: document.getElementById('progressBar'),
   statusText: document.getElementById('statusText'),
@@ -19,7 +28,11 @@ const els = {
   log: document.getElementById('log')
 };
 
+const runtime = globalThis.chrome?.runtime;
 let loginStatus = 'checking';
+let currentMode = 'keyword';
+
+els.appVersion.textContent = `v${runtime?.getManifest?.().version || '1.1.0'}`;
 
 const SORT_LABELS = {
   general: '综合',
@@ -35,7 +48,11 @@ function normalizedLimit() {
 }
 
 function normalizedDelay() {
-  const value = Math.trunc(Number(els.delay.value || 6));
+  if (currentMode === 'links') {
+    return 6;
+  }
+  const input = els.delay;
+  const value = Math.trunc(Number(input.value || 6));
   return Math.max(3, Math.min(30, Number.isFinite(value) ? value : 6));
 }
 
@@ -61,7 +78,9 @@ function syncLimitUi() {
 }
 
 function syncDelayUi() {
-  els.delay.value = String(normalizedDelay());
+  if (currentMode === 'keyword') {
+    els.delay.value = String(normalizedDelay());
+  }
 }
 
 function syncSortUi() {
@@ -70,13 +89,53 @@ function syncSortUi() {
 }
 
 function syncStartButton() {
-  const limit = normalizedLimit();
-  const sortLabel = SORT_LABELS[normalizedSortType()] || SORT_LABELS.comment_descending;
-  els.startBtn.textContent = `开始采集 · ${sortLabel} · ${limit}条`;
+  els.startBtn.textContent = '开始采集';
+}
+
+function switchMode(mode) {
+  currentMode = mode === 'links' ? 'links' : 'keyword';
+  const isLinks = currentMode === 'links';
+  els.keywordModeBtn.classList.toggle('active', !isLinks);
+  els.linkModeBtn.classList.toggle('active', isLinks);
+  els.keywordModeBtn.setAttribute('aria-selected', String(!isLinks));
+  els.linkModeBtn.setAttribute('aria-selected', String(isLinks));
+  els.keywordModePanel.hidden = isLinks;
+  els.linkModePanel.hidden = !isLinks;
+  document.body.classList.toggle('mode-links', isLinks);
+  els.statusText.textContent = isLinks ? '等待粘贴笔记链接' : '等待输入关键词';
+  syncDelayUi();
+  syncStartButton();
 }
 
 function send(message) {
-  return chrome.runtime.sendMessage(message);
+  return runtime?.sendMessage ? runtime.sendMessage(message) : Promise.resolve({ ok: false, preview: true });
+}
+
+function showStartError(error) {
+  const rawText = String(error?.message || error || '');
+  const backgroundNotReady = !rawText
+    || rawText.includes('message port')
+    || rawText.includes('Receiving end')
+    || rawText.includes('Could not establish connection')
+    || rawText.includes('插件后台未响应');
+  const text = backgroundNotReady
+    ? '插件后台尚未更新，请到扩展管理页重新加载插件'
+    : rawText;
+  els.statusText.textContent = text;
+  addUiLog(text, 'error');
+}
+
+async function sendStart(message) {
+  try {
+    const result = await send(message);
+    if (!result?.ok) {
+      throw new Error(result?.error || '插件后台未响应');
+    }
+    return true;
+  } catch (error) {
+    showStartError(error);
+    return false;
+  }
 }
 
 function setLoginStatus(status) {
@@ -105,152 +164,29 @@ function renderBadge(status = 'idle') {
 }
 
 function setBusy(isBusy) {
+  if (isBusy && els.advancedFilters.open) {
+    els.advancedFilters.open = false;
+    document.body.classList.remove('filters-open');
+  }
   els.startBtn.disabled = isBusy;
-  els.importBtn.disabled = isBusy;
   els.stopBtn.disabled = !isBusy;
+  els.keywordModeBtn.disabled = isBusy;
+  els.linkModeBtn.disabled = isBusy;
+  els.noteLinks.disabled = isBusy;
   document.body.classList.toggle('is-running', isBusy);
 }
 
-function decodeUtf8(bytes) {
-  return new TextDecoder().decode(bytes);
-}
-
-function readUint16(bytes, offset) {
-  return bytes[offset] | (bytes[offset + 1] << 8);
-}
-
-function readUint32(bytes, offset) {
-  return (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0;
-}
-
-async function inflateRaw(bytes) {
-  if (typeof DecompressionStream !== 'function') {
-    throw new Error('当前浏览器不支持读取压缩版 xlsx，请选择插件直接导出的 notes_raw.xlsx');
+function renderStopState(state, isBusy) {
+  const waitingForCurrent = isBusy && Boolean(state.stopAfterCurrent);
+  const stoppingNow = isBusy && Boolean(state.stopRequested);
+  els.stopBtn.disabled = !isBusy || waitingForCurrent || stoppingNow;
+  if (waitingForCurrent) {
+    els.stopBtn.textContent = '等待停止';
+  } else if (stoppingNow) {
+    els.stopBtn.textContent = '正在停止…';
+  } else {
+    els.stopBtn.textContent = '停止';
   }
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
-
-async function unzipFile(buffer, filename) {
-  const bytes = new Uint8Array(buffer);
-  let offset = 0;
-  while (offset + 30 < bytes.length) {
-    const signature = readUint32(bytes, offset);
-    if (signature !== 0x04034b50) {
-      break;
-    }
-    const method = readUint16(bytes, offset + 8);
-    const compressedSize = readUint32(bytes, offset + 18);
-    const fileSize = readUint32(bytes, offset + 22);
-    const nameLength = readUint16(bytes, offset + 26);
-    const extraLength = readUint16(bytes, offset + 28);
-    const nameStart = offset + 30;
-    const name = decodeUtf8(bytes.slice(nameStart, nameStart + nameLength));
-    const dataStart = nameStart + nameLength + extraLength;
-    const dataEnd = dataStart + compressedSize;
-    if (name === filename) {
-      const data = bytes.slice(dataStart, dataEnd);
-      if (method === 0) {
-        return decodeUtf8(data);
-      }
-      if (method === 8) {
-        return decodeUtf8(await inflateRaw(data));
-      }
-      throw new Error('不支持的 xlsx 压缩格式');
-    }
-    offset = dataEnd;
-  }
-  throw new Error('没有找到 Excel 工作表');
-}
-
-async function tryUnzipFile(buffer, filename) {
-  try {
-    return await unzipFile(buffer, filename);
-  } catch (_) {
-    return '';
-  }
-}
-
-function parseSharedStrings(xmlText) {
-  if (!xmlText) {
-    return [];
-  }
-  const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
-  return Array.from(doc.getElementsByTagName('si')).map((item) => (
-    Array.from(item.getElementsByTagName('t')).map((node) => node.textContent || '').join('')
-  ));
-}
-
-function cellColumn(ref) {
-  const letters = String(ref || '').match(/[A-Z]+/i)?.[0] || '';
-  let index = 0;
-  for (const letter of letters.toUpperCase()) {
-    index = index * 26 + letter.charCodeAt(0) - 64;
-  }
-  return Math.max(0, index - 1);
-}
-
-function parseSheetRows(xmlText, sharedStrings = []) {
-  const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
-  return Array.from(doc.getElementsByTagName('row')).map((row) => {
-    const values = [];
-    Array.from(row.getElementsByTagName('c')).forEach((cell) => {
-      const column = cellColumn(cell.getAttribute('r'));
-      const type = cell.getAttribute('t');
-      const text = cell.getElementsByTagName('t')[0]?.textContent;
-      const value = cell.getElementsByTagName('v')[0]?.textContent;
-      values[column] = type === 's' ? (sharedStrings[Number(value)] || '') : (text ?? value ?? '');
-    });
-    return values.map((value) => String(value || '').trim());
-  });
-}
-
-async function parseNotesWorkbook(buffer) {
-  const sheetXml = await unzipFile(buffer, 'xl/worksheets/sheet1.xml');
-  const sharedStrings = parseSharedStrings(await tryUnzipFile(buffer, 'xl/sharedStrings.xml'));
-  const rows = parseSheetRows(sheetXml, sharedStrings);
-  const headers = rows[0] || [];
-  const indexOf = (name) => headers.indexOf(name);
-  const linkIndex = indexOf('笔记链接');
-  if (linkIndex < 0) {
-    throw new Error('请选择 notes_raw.xlsx，必须包含“笔记链接”列');
-  }
-  const sortIndex = indexOf('排序方式');
-  const invalidRows = [];
-  const notes = rows.slice(1).map((row, index) => ({
-    batch: row[indexOf('采集批次')] || '',
-    collectTime: row[indexOf('采集时间')] || '',
-    keyword: row[indexOf('搜索关键词')] || '',
-    sortLabel: sortIndex >= 0 ? (row[sortIndex] || '') : '',
-    rank: row[indexOf('关键词下排名')] || index + 1,
-    link: row[linkIndex] || '',
-    title: row[indexOf('笔记标题')] || '',
-    author: row[indexOf('作者昵称')] || '',
-    commentCount: row[indexOf('评论数')] || '',
-    status: row[indexOf('采集状态')] || ''
-  })).filter((note, index) => {
-    if (!note.link) {
-      return false;
-    }
-    try {
-      const url = new URL(note.link);
-      const noteId = url.pathname.split('/').filter(Boolean).pop();
-      const token = url.searchParams.get('xsec_token');
-      if (!noteId || !token) {
-        invalidRows.push(index + 2);
-        return false;
-      }
-      return true;
-    } catch (_) {
-      invalidRows.push(index + 2);
-      return false;
-    }
-  });
-  return {
-    notes,
-    totalRows: Math.max(0, rows.length - 1),
-    invalidRows
-  };
 }
 
 function addUiLog(message, level = 'info') {
@@ -289,19 +225,21 @@ function escapeHtml(text) {
 function render(state) {
   const status = state.status || 'idle';
   const isBusy = status === 'running';
+  if (isBusy && (state.mode === 'links' || state.mode === 'keyword') && state.mode !== currentMode) {
+    switchMode(state.mode);
+  }
   setBusy(isBusy);
+  renderStopState(state, isBusy);
   document.body.classList.toggle('is-error', status === 'error');
   els.exportBtn.disabled = !(state.notes?.length || state.commentRows?.length);
   renderBadge(status);
-  const progress = state.taskProgress || {};
-  const progressLabel = progress.total ? `${progress.label || `${progress.current}/${progress.total}`} · ` : '';
-  els.statusText.textContent = `${progressLabel}${state.message || '等待输入关键词'}`;
+  els.statusText.textContent = state.message || '等待输入关键词';
   els.noteCount.textContent = String(state.notes?.length || 0);
   els.commentCount.textContent = String(state.commentCount || 0);
   els.replyCount.textContent = String(state.replyCount || 0);
   els.progressBar.style.width = `${Math.max(0, Math.min(100, state.progress || 0))}%`;
   els.log.textContent = '';
-  for (const item of (state.logs || []).slice(-80).reverse()) {
+  for (const item of (state.logs || []).slice(-3).reverse()) {
     const li = document.createElement('li');
     const entry = typeof item === 'string'
       ? { time: item.slice(0, 8), level: 'info', message: item.slice(9) || item }
@@ -313,6 +251,20 @@ function render(state) {
 }
 
 els.startBtn.addEventListener('click', async () => {
+  if (currentMode === 'links') {
+    const rawText = els.noteLinks.value.trim();
+    if (!rawText) {
+      els.noteLinks.focus();
+      return;
+    }
+    syncDelayUi();
+    await sendStart({
+      type: 'START_LINK_COLLECT',
+      rawText,
+      delaySeconds: normalizedDelay()
+    });
+    return;
+  }
   const keyword = els.keyword.value.trim();
   if (!keyword) {
     els.keyword.focus();
@@ -326,7 +278,7 @@ els.startBtn.addEventListener('click', async () => {
   syncLimitUi();
   syncSortUi();
   syncDelayUi();
-  await send({
+  await sendStart({
     type: 'START_COLLECT',
     keyword,
     limit,
@@ -344,43 +296,61 @@ els.noteType.addEventListener('change', syncStartButton);
 els.noteTime.addEventListener('change', syncStartButton);
 els.delay.addEventListener('input', syncDelayUi);
 els.delay.addEventListener('change', syncDelayUi);
-
-els.importBtn.addEventListener('click', () => {
-  els.noteFile.value = '';
-  els.noteFile.click();
+els.keywordModeBtn.addEventListener('click', () => switchMode('keyword'));
+els.linkModeBtn.addEventListener('click', () => switchMode('links'));
+els.advancedFilters.addEventListener('toggle', () => {
+  document.body.classList.toggle('filters-open', els.advancedFilters.open);
 });
 
-els.noteFile.addEventListener('change', async () => {
-  const file = els.noteFile.files?.[0];
-  if (!file) {
-    return;
+function closeStopDialog() {
+  els.stopDialog.hidden = true;
+}
+
+els.stopBtn.addEventListener('click', () => {
+  els.stopDialog.hidden = false;
+  els.finishCurrentBtn.focus();
+});
+els.cancelStopBtn.addEventListener('click', closeStopDialog);
+els.stopDialog.addEventListener('click', (event) => {
+  if (event.target === els.stopDialog) {
+    closeStopDialog();
   }
+});
+els.finishCurrentBtn.addEventListener('click', async () => {
+  closeStopDialog();
+  els.statusText.textContent = '已设置：采完当前笔记后停止';
+  els.stopBtn.textContent = '等待停止';
+  els.stopBtn.disabled = true;
   try {
-    addUiLog(`正在读取 Excel：${file.name}`, 'import');
-    const buffer = await file.arrayBuffer();
-    const result = await parseNotesWorkbook(buffer);
-    const notes = result.notes;
-    if (!notes.length) {
-      throw new Error('Excel 里没有可采集的笔记链接，请确认链接包含 xsec_token');
+    const result = await send({ type: 'STOP_AFTER_CURRENT' });
+    if (!result?.ok) {
+      throw new Error(result?.error || '设置停止失败');
     }
-    const skippedText = result.invalidRows.length ? `，跳过无效行：${result.invalidRows.slice(0, 8).join('、')}` : '';
-    addUiLog(`识别到 ${notes.length}/${result.totalRows} 条有效笔记${skippedText}`, 'import');
-    await send({
-      type: 'COLLECT_COMMENTS_FROM_NOTES',
-      notes,
-      delaySeconds: normalizedDelay()
-    });
   } catch (error) {
-    const text = String(error?.message || error);
-    els.statusText.textContent = text;
-    addUiLog(text, 'error');
+    showStartError(error);
+    els.stopBtn.textContent = '停止';
+    els.stopBtn.disabled = false;
   }
 });
-
-els.stopBtn.addEventListener('click', () => send({ type: 'STOP_COLLECT' }));
+els.immediateStopBtn.addEventListener('click', async () => {
+  closeStopDialog();
+  els.statusText.textContent = '正在立即停止…';
+  els.stopBtn.textContent = '正在停止…';
+  els.stopBtn.disabled = true;
+  try {
+    const result = await send({ type: 'STOP_COLLECT' });
+    if (!result?.ok) {
+      throw new Error(result?.error || '停止失败');
+    }
+  } catch (error) {
+    showStartError(error);
+    els.stopBtn.textContent = '停止';
+    els.stopBtn.disabled = false;
+  }
+});
 els.exportBtn.addEventListener('click', () => send({ type: 'EXPORT_DATA' }));
 
-chrome.runtime.onMessage.addListener((message) => {
+runtime?.onMessage?.addListener((message) => {
   if (message?.type === 'STATE_UPDATED') {
     render(message.state);
   }
