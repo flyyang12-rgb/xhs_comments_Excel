@@ -1,0 +1,91 @@
+task:
+  negative_per_keyword_limit: 100
+  positive_per_keyword_limit: 100
+  negative_candidate_limit: 800
+  positive_candidate_limit: 800
+  positive_months: 12
+  min_publish_date: "2024-01-01"
+
+# 采集关键词只在这里维护，不需要修改 Python 源码。
+keywords:
+  negative:
+    - "儿童大披肩帽 避雷"
+    - "宝宝大披肩帽 避雷"
+    - "儿童大披肩防晒帽 差评"
+    - "儿童大披肩防晒帽 不推荐"
+    - "儿童大披肩帽 退货"
+    - "儿童大披肩帽 闷热"
+    - "儿童大披肩帽 不透气"
+    - "儿童大披肩帽 挡视线"
+    - "儿童大披肩帽 勒脖"
+    - "儿童大披肩帽 掉色"
+    - "儿童大披肩帽 开线"
+    - "儿童大披肩帽 帽檐塌"
+    - "儿童大披肩帽 尺码不合"
+    - "儿童大披肩帽 防风绳"
+    - "宝宝大披肩帽 不好用"
+    - "婴幼儿大披肩帽 吐槽"
+  positive:
+    - "儿童大披肩帽 推荐"
+    - "宝宝大披肩帽 推荐"
+    - "儿童大披肩防晒帽 好用"
+    - "宝宝大披肩防晒帽 好评"
+    - "儿童大披肩遮阳帽 实测"
+    - "婴幼儿大披肩帽 分享"
+    - "儿童大披肩帽 舒服"
+    - "儿童大披肩帽 透气"
+    - "儿童大披肩防晒帽 防晒效果"
+    - "儿童大披肩帽 户外"
+    - "儿童大披肩帽 海边"
+    - "儿童大披肩帽 上学"
+
+# 分析词用于辅助 AI 理解业务口径，不会单独按词机械判定好差评。
+analysis_terms:
+  negative:
+    - "防晒不足"
+    - "遮阳范围小"
+    - "披肩过短"
+    - "帽檐易塌"
+    - "遮挡视线"
+    - "闷热不透气"
+    - "勒脖"
+    - "掉色"
+    - "开线"
+    - "尺码不合"
+    - "防风绳脱落"
+  positive:
+    - "防晒效果好"
+    - "遮阳范围大"
+    - "披肩够长"
+    - "帽檐稳定"
+    - "视线不受影响"
+    - "透气舒适"
+    - "佩戴舒服"
+    - "颜色耐看"
+    - "做工扎实"
+    - "尺码合适"
+    - "值得推荐"
+
+throttle:
+  search_page_min_seconds: 8
+  search_page_max_seconds: 12
+  keyword_min_seconds: 20
+  keyword_max_seconds: 35
+  detail_min_seconds: 6
+  detail_max_seconds: 10
+  cover_min_seconds: 0.3
+  cover_max_seconds: 0.8
+  long_rest_every_notes: 80
+  long_rest_min_seconds: 180
+  long_rest_max_seconds: 300
+
+ai:
+  batch_size: 16
+  max_retries: 3
+  request_timeout_seconds: 120
+
+vision:
+  max_concurrency: 3
+  max_retries: 3
+  request_timeout_seconds: 120
+  download_timeout_seconds: 45
