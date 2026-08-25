@@ -42,5 +42,11 @@ assert.match(backgroundJs, /abortActiveWork\(\)/);
 assert.match(backgroundJs, /function resultSummary[\s\S]*completedNotes[\s\S]*评论[\s\S]*回复/);
 assert.doesNotMatch(popupJs, /progressLabel/);
 assert.equal(manifest.version, packageJson.version);
+for (const size of ['16', '32', '48', '128']) {
+  assert.equal(manifest.icons[size], `icons/icon-${size}.png`);
+  assert.equal(fs.existsSync(path.join(extensionDir, manifest.icons[size])), true);
+}
+assert.doesNotMatch(popupHtml, /value=["']寻欢作乐["']/);
+assert.match(popupHtml, /placeholder=["']粘贴一个关键词内容["']/);
 
 console.log('extension search and note-link wiring tests passed');
