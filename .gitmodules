@@ -1,0 +1,3 @@
+[submodule "xhs_comments_Excel_py/vendor/Spider_XHS"]
+	path = xhs_comments_Excel_py/vendor/Spider_XHS
+	url = https://github.com/cv-cat/Spider_XHS.git
