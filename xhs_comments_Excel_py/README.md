@@ -1,11 +1,11 @@
 # 儿童大披肩防晒帽小红书舆情采集
 
-本项目独立位于 `xhs_comments_Excel_py`，不会读取或修改旁边的 `xhs_comments_Excel_repo`。
+本项目位于总仓库的 `xhs_comments_Excel_py` 文件夹中，不会读取或修改旁边的 Chrome 插件。
 
 ## 使用方法
 
 1. Windows 安装 Git、Python 3.10+、Node.js 20+。
-2. 使用 `git clone --recurse-submodules https://github.com/flyyang12-rgb/xhs_comments_Excel_py.git` 下载完整项目。
+2. 在总仓库目录进入 `xhs_comments_Excel_py` 文件夹。
 3. 复制 `.env.example` 为 `.env`，填写 DeepSeek 和千问视觉 API 密钥。
 4. 双击 `启动采集.bat`。
 5. 首次运行等待独立环境安装完成。
